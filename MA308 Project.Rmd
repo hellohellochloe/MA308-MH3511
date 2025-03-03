@@ -1,0 +1,1675 @@
+---
+title: "MA308 Project"
+author: "李宣樂 Lee Xuan Le, Chloe; 邓雯文 Valen Tang Wenwen; 刘珈闻 (Group 11)"
+date: "2024-12-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Import dataset
+```{r}
+library(car)
+gym <- read.csv("C:/Users/Valen/Downloads/gym_members_exercise_tracking.csv", header = TRUE)
+head(gym)
+str(gym)
+```
+
+## Check for NA values
+```{r}
+colSums(is.na(gym))
+```
+Since there are no missing values in this dataset, we can proceed directly with the analysis and evaluation of each variable, as well as examining the relationships between them.
+
+## General plot of the data 
+```{r}
+plot(gym)
+```
+
+The matrix plot represents correlations, but are a little too small to interpret. As such, we continue with further analysis. 
+
+## Histograms for single numeric variables
+```{r}
+hist(gym$`Age`, main="Histogram of Weight", xlab="Age")
+hist(gym$`Weight..kg.`, main="Histogram of Weight", xlab="Weight (kg)")
+hist(gym$`Height..m.`, main="Histogram of Height", xlab="Height (m)")
+hist(gym$`Max_BPM`, main="Histogram of Max_BPM", xlab="Max_BPM")
+hist(gym$`Avg_BPM`, main="Histogram of Avg_BPM", xlab="Avg_BPM")
+hist(gym$`Resting_BPM`, main="Histogram of Resting_BPM", xlab="Resting_BPM")
+hist(gym$`Session_Duration..hours.`, main="Histogram of Session_Duration", xlab="Session_Duration (hours)")
+hist(gym$`Calories_Burned`, main="Histogram of Calories_Burned", xlab="Calories_Burned")
+hist(gym$`Fat_Percentage`, main="Histogram of Fat_Percentage", xlab="Fat_Percentage")
+hist(gym$`Water_Intake..liters.`, main="Histogram of Water_Intake (liters)", xlab="Water_Intake (liters)")
+hist(gym$`Workout_Frequency..days.week.`, main="Histogram of Workout_Frequency (days/week)", xlab="Workout_Frequency (days/week)")
+hist(gym$`Experience_Level`, main="Histogram of Experience_Level", xlab="Experience_Level")
+hist(gym$`BMI`, main="Histogram of BMI", xlab="BMI")
+```
+
+General trends of each column, but they are not really helpful on their own. 
+
+## Histograms for single categorical variables
+```{r}
+#### Workout_Type
+table(gym$`Workout_Type`)
+
+# Summary of all categorical variables in the dataset
+sapply(gym, function(x) if(is.factor(x)) table(x) else NULL)
+
+library(ggplot2)
+# Bar plot using ggplot2
+ggplot(gym, aes(x = `Workout_Type`)) +
+  geom_bar() +
+  labs(title = "Bar Plot of Workout_Type", x = "Category", y = "Frequency")
+
+
+
+#### Gender
+table(gym$`Gender`)
+
+# Bar plot using ggplot2
+ggplot(gym, aes(x = `Gender`)) +
+  geom_bar() +
+  labs(title = "Bar Plot of Gender", x = "Category", y = "Frequency")
+```
+
+Similarly, we analysed the general trends for each categorical variable on its own.
+
+As such, we move on to compare the effects of different variables on each other, mainly focusing on the dependent variable as the number of calories burned. 
+
+## Analyse the skewness of variables
+```{r, warning=FALSE}
+library(ggplot2)
+# Function to calculate skewness
+skewness_base <- function(x) {
+  n <- length(x)
+  mean_x <- mean(x, na.rm = TRUE)
+  sd_x <- sd(x, na.rm = TRUE)
+  skewness_value <- sum((x - mean_x)^3, na.rm = TRUE) / (n * sd_x^3)
+  
+  return(skewness_value)
+}
+
+# Apply skewness function to multiple predictor variables
+predictors <- c("Age", "Weight..kg.", "Height..m.", "Max_BPM", "Avg_BPM", 
+                "Resting_BPM", "Session_Duration..hours.", "Calories_Burned", 
+                "Fat_Percentage", "Water_Intake..liters.", "Workout_Frequency..days.week.",
+                "Experience_Level", "BMI")
+
+# Create a data frame to store the skewness results
+skewness_results <- data.frame(Predictor = predictors, Skewness = NA)
+
+# Loop through the predictors and calculate skewness for each
+for (i in 1:length(predictors)) {
+  skewness_results$Skewness[i] <- skewness_base(gym[[predictors[i]]])
+}
+
+# Print the skewness results
+print(skewness_results)
+
+for (predictor in predictors) {
+  p <- ggplot(gym, aes_string(x = predictor)) +
+    geom_histogram(binwidth = 1, color = "black", fill = "skyblue", alpha = 0.7) +
+    ggtitle(paste("Histogram of", predictor)) +
+    theme_minimal() +
+    labs(x = predictor, y = "Frequency")
+  
+  print(p)
+}
+```
+
+Skewness Analysis and Recommendations (ie. Should we perform a transformation?):
+
+
+Age: -0.0776
+Near symmetric (slightly negative skew). No transformation needed.
+
+
+Weight (kg): 0.7700
+Moderate positive skew. A log transformation might help reduce skewness and stabilize variance.
+
+
+Height (m): 0.3378
+Mild positive skew. This variable is not highly skewed, so a transformation is probably not necessary unless there's another reason (e.g., heteroskedasticity).
+
+
+Max BPM: -0.0378
+Near symmetric (slightly negative skew). No transformation needed.
+
+
+Avg BPM: 0.0861
+Mild positive skew. Like Height, this isn't strongly skewed, and transformation isn't necessary unless there are other modeling issues.
+
+
+Resting BPM: -0.0714
+Near symmetric. No transformation needed.
+
+
+Session Duration (hours): 0.0257
+Near symmetric. No transformation needed.
+
+
+Calories Burned: 0.2775
+Mild positive skew. This is not highly skewed, so a transformation (like log) is not strictly necessary but could still be useful if heteroskedasticity is suspected.
+
+
+Fat Percentage: -0.6333
+Moderate negative skew. A log transformation or another transformation could help to make this variable more symmetric, especially if skewness is observed in the residuals.
+
+
+Water Intake (liters): 0.0713
+Mild positive skew. No transformation is strictly necessary here either unless needed for variance stabilisation.
+
+
+## Basic Scatterplot Matrix and Correlation Analysis
+```{r, warning=FALSE}
+# Load necessary libraries
+if (!require(car)) install.packages("car", dependencies = TRUE)
+if (!require(ggcorrplot)) install.packages("ggcorrplot", dependencies = TRUE)
+if (!require(reshape2)) install.packages("reshape2", dependencies = TRUE)
+
+library(car)
+library(ggcorrplot)
+library(reshape2)
+
+# Scatterplot Matrix
+scatterplotMatrix(~ Calories_Burned + Age + Weight..kg. + Height..m. + 
+                    Max_BPM + Avg_BPM + Resting_BPM + Session_Duration..hours. + 
+                    Fat_Percentage + Water_Intake..liters. + 
+                    Workout_Frequency..days.week. + BMI, 
+                  data = gym, 
+                  spread = FALSE,      # Disable spread smooth
+                  lty.smooth = 2,      # Dashed lines for smoothing
+                  main = "Scatter Plot Matrix for Calories Burned and Predictors")
+
+# Calculate correlations for numeric variables
+numeric_vars <- gym[, sapply(gym, is.numeric)] # Select only numeric columns
+correlation_matrix <- cor(numeric_vars, use = "complete.obs") # Correlation matrix
+
+# Display the correlation matrix in the console
+print("Correlation Matrix:")
+print(correlation_matrix)
+
+# Visualize the correlation matrix with heatmap
+ggcorrplot(correlation_matrix, 
+           hc.order = TRUE,      # Hierarchical clustering order
+           type = "lower",       # Show lower triangular matrix
+           lab = TRUE,           # Add correlation coefficients
+           title = "Correlation Matrix Heatmap")
+
+# Create a flat correlation table
+correlation_table <- melt(correlation_matrix)
+colnames(correlation_table) <- c("Variable_1", "Variable_2", "Correlation")
+
+# Remove self-correlations and duplicates
+correlation_table <- subset(correlation_table, Variable_1 != Variable_2)
+
+# Display the pairwise correlation table in the console
+print("Pairwise Correlation Table:")
+print(correlation_table)
+```
+
+Again, these are a few methods to analyse the general trends and correlations between the variables, without any transformations implemented. We dive deeper into transformations, assumptions and models below.
+
+
+## Construct a multiple linear regression model (include all possible variables)
+```{r}
+model <- lm(Calories_Burned ~ Age + Gender + Weight..kg. + Height..m. + Max_BPM + Avg_BPM +
+            Resting_BPM + Session_Duration..hours. + Workout_Type + Fat_Percentage +
+            Water_Intake..liters. + Workout_Frequency..days.week. + Experience_Level + BMI, 
+            data = gym)
+summary(model)
+```
+
+Multiple R-squared value is 0.9794, which aligns with the claim that 97.9% of the variance in the dependent variable (Calories_Burned) is explained by the predictors in the model. 
+
+The Adjusted R-squared value is 0.979, which is very close to the Multiple R-squared value. This indicates that the high R^2 value is robust and not inflated by unnecessary predictors.
+
+The extremely high F-statistic (2835) and the very small p-value (< 2.2e-16) suggest that the predictors are highly significant in explaining the variance in the outcome variable.
+
+Predictors with p-value < 0.05 significantly contribute to explaining Calories_Burned:
+
+- Age: Negative coefficient suggests that older individuals tend to burn less calories.
+
+- GenderMale: Positive coefficient indicates that males tend to burn more calories than females.
+
+- Weight..kg: There is a slight negative effect on calories burned.
+
+- Height..m.: Positive relationship, taller individuals burn more calories.
+
+- Avg_BPM: Strong positive association with calories burned.
+
+- Resting_BPM: Small but significant positive effect.
+
+- Session_Duration..hours.: Very strong positive effect.
+
+- BMI: Positive effect, higher BMI correlates with more calories burned.
+
+Predictors with p-value > 0.05 do not significantly contribute to the model, which could possibly be removed from the regression model but further evaluation is required. These predictors include Max_BPM, Workout_Type (all levels), Fat_Percentage, Water_Intake..liters., Workout_Frequency..days.week., and Experience_Level.
+
+## Diagnostic plots
+```{r}
+# Fit the model
+model <- lm(Calories_Burned ~ Age + Gender + Weight..kg. + Height..m. + 
+            Max_BPM + Avg_BPM + Resting_BPM + Session_Duration..hours. + 
+            Workout_Type + Fat_Percentage + Water_Intake..liters. + 
+            Workout_Frequency..days.week. + Experience_Level + BMI, data = gym)
+
+# Plot diagnostic plots
+plot(model)
+```
+
+## Checking assumptions (normality)
+```{r}
+# Extract residuals from the model
+residuals <- residuals(model)
+
+# Create the Q-Q plot
+qqnorm(residuals)
+qqline(residuals, col = "red")  # Add a reference line
+```
+
+The points mostly follow the red diagonal line, indicating the data roughly adheres to a normal distribution. There is noticeable deviation at the extreme ends, whereby the points at these extremes curve away from the diagonal, suggesting that the data might have heavier tails than expected under a normal distribution. This is indicative of potential non-normality in the tails (e.g., outliers or skewness).
+
+```{r}
+# Shapiro-Wilk test 
+shapiro.test(residuals(model))
+```
+
+A W value of 0.98463 suggests a slight deviation from normality. Since the p-value = 1.372e-08 < 0.05, we can reject the null hypothesis. This means that there is enough evidence to suggest that the residuals are not normally distributed.
+
+## Checking assumptions (independence)
+```{r}
+library(car)
+set.seed(123)
+durbinWatsonTest(model)
+```
+
+The non significant p-value (p = 0.058 > 0.05) suggest that there is no evidence of autocorrelation. This confirms that the residuals are independent, which satisfies the assumption of independence for linear regression.
+
+From our understanding of independence, the data set contains information from each individual gym member, in which their gym routines do not influence each other. As such, it is safe to say that the independence assumption is fulfilled. 
+
+## Checking assumptions (linearity)
+```{r}
+crPlots(model)
+```
+
+These variables show no significant deviations from the pink line, suggesting they have a linear relationship with the dependent variables: Height (m), Max_BPM, Avg_BPM, Resting_BPM, Session_Duration (hours), Fat_Percentage, Water_Intake (liters), Workout_Frequency (days/week), Experience_Level
+
+
+These variables do not require testing for linearity:
+
+- Gender: Categorical variable with two levels.
+
+- Workout_Type: Categorical variable with multiple levels.
+
+
+The following variables show very slight curvature or trends in the pink line, indicating slight non-linearity that may require transformation or the inclusion of higher-order terms:
+
+- Age: Slight curvature suggests adding a quadratic term (Age^2) might improve the model.
+
+- Weight (kg): Curvature indicates potential non linearity, consider a transformation like 
+log(Weight) or a polynomial term.
+
+- Fat_Percentage: Subtle curvature; transformation may be needed depending on the variable's importance.
+
+- BMI: Slight curvature; consider transformations such as log(BMI) or polynomial terms.
+
+Overall, the linearity assumption is fulfilled. 
+
+## Checking assumptions (homoskedasticity)
+```{r}
+ncvTest(model)
+spreadLevelPlot(model)
+```
+
+Since the p-value = 1.7615e-10 < 0.05, we can reject the null hypothesis and conclude that the homoskedasticity assumption is violated. Furthermore, we see that there is a non-horizontal trend in the plot, which suggests a violation of the assumption of constant variance.
+
+## Test multicollinearity
+```{r}
+vif(model)
+sqrt(vif(model)) > 2
+```
+
+Weight, Height, and BMI are closely related because BMI is calculated using Weight and Height. This leads to high multicollinearity between these variables. Since BMI is a function of weight and height, we can remove these 2 variables and keep BMI in the model
+
+Experience Level also has a moderate VIF, suggesting that it might be somewhat correlated with other predictors in the model (e.g., age or workout-related variables), but this is not as severe as with Weight and Height. Since the correlation of Experience Level with other predictors is not very high and Experience Level is a meaningful predictor in our analysis, we will keep it in the model. 
+
+## Outliers
+```{r}
+# Fit the model (exclude weight and height)
+umodel <- lm(Calories_Burned ~ Age + Gender +  
+            Max_BPM + Avg_BPM + Resting_BPM + Session_Duration..hours. + 
+            Workout_Type + Fat_Percentage + Water_Intake..liters. + 
+            Workout_Frequency..days.week. + Experience_Level + BMI, data = gym)
+
+outlierTest(umodel)
+```
+
+The unadjusted p-values for both observations (911 & 512) are very small (less than 0.05), which suggests that these data points may be outliers. The Bonferroni-adjusted p-values account for multiple comparisons and are still below 0.05, reinforcing that these observations are potential outliers.
+
+As such, we proceeded to remove the 2 outliers. 
+
+```{r}
+# Remove the outliers (observations 911 and 512)
+gym_clean <- gym[-c(911, 512), ]
+
+# Refit the model without the outliers
+model_clean <- lm(Calories_Burned ~ Age + Gender + Max_BPM + Avg_BPM + Resting_BPM + 
+                  Session_Duration..hours. + Workout_Type + Fat_Percentage + Water_Intake..liters. + 
+                  Workout_Frequency..days.week. + Experience_Level + BMI, data = gym_clean)
+
+# Check for outliers again
+outlierTest(model_clean)
+```
+
+The result indicates that after removing the two outliers, there are no remaining observations with significant studentized residuals (p < 0.05). This suggests that the model no longer has influential outliers, and the remaining data is less likely to have a disproportionate impact on the regression results. 
+
+## High leverage points
+```{r}
+hat.plot <- function(model_clean) {
+  p <- length(coef(model_clean))  # Number of predictors
+  n <- length(fitted(model_clean))  # Number of observations
+  
+  # Get hat values (leverage)
+  leverage_values <- hatvalues(model_clean)
+  
+  # Plot hat values (leverage)
+  plot(hatvalues(model_clean), 
+       main = "Index Plot of Hat Values", 
+       xlab = "Observation Index", 
+       ylab = "Hat Value", 
+       pch = 16, 
+       col = "blue")
+  
+  # Add horizontal lines for high leverage threshold
+  abline(h = c(2, 3) * p / n, col = "red", lty = 2)
+  
+  # Identify high leverage points (above threshold)
+  threshold <- 2 * p / n
+  high_leverage_indices <- which(leverage_values > threshold)
+  
+  # Print the rows of the dataset that correspond to high leverage points
+  high_leverage_points <- gym_clean[high_leverage_indices, ]
+  print(high_leverage_points)
+}
+
+hat.plot(model_clean)
+```
+
+Very clearly, there is a point very much above the red line, indicating very high leverage value, as tested using the threshold of 2p/n. However, it does not equate to the point being an outlier, so we did not remove it. 
+
+## Influential observations
+```{r}
+# Calculate Cook's Distance
+cooks_d <- cooks.distance(model_clean)
+
+# Plot Cook's Distance
+plot(cooks_d, type = "h", main = "Cook's Distance", ylab = "Cook's Distance", xlab = "Index")
+abline(h = 4 / length(cooks_d), col = "red", lty = 2)
+
+# Identify influential points
+influential_points <- which(cooks_d > 4 / length(cooks_d))
+print(influential_points)
+```
+
+The points above the red line are identified as influential points and are printed above. Since these points represent legitimate data from different individuals with unique characteristics, we cannot remove them from the analysis.
+
+## Combination of outlier, leverage, and influence points
+```{r}
+# Load necessary library
+library(car)
+
+# Generate Influence Plot for the model
+influencePlot(model_clean, main= "Influence Plot", sub = "Circle size is proportional to Cook's Distance")
+```
+
+Observations 713, 573, and 898 have high Cook's Distance, indicating that they are influential. 
+
+Observation 262 has a high leverage value, meaning it is distant from the center of the predictor values. High leverage points are not necessarily problematic unless combined with high residuals or Cook's Distance. As such, we did not remove 262.
+
+Observation 107 is flagged as an outlier because its residual is greater than ±3. This indicates it does not fit well with the model’s predictions. However, being an outlier alone is not always sufficient to warrant removal. Observation 107 has a Cook's Distance below the common threshold of 0.5, which suggests it is not highly influential on the overall regression model. This indicates that its removal may not drastically change the model coefficients. Therefore, we did not remove Observation 107. 
+
+## Box-Cox Transformation
+```{r}
+library(car)
+
+# Box-Cox transformation for the response variable
+boxcox_result <- powerTransform(Calories_Burned ~ Age + Max_BPM + Avg_BPM + Resting_BPM + 
+                                 Session_Duration..hours. + Fat_Percentage + Water_Intake..liters. + 
+                                 Workout_Frequency..days.week. + Experience_Level + BMI, 
+                                 data = gym_clean)
+
+# View the suggested lambda values
+summary(boxcox_result)
+```
+
+The Box-Cox transformation suggests applying a power transformation with lambda = 0.76 to stabilize variance and improve model fit.
+
+```{r}
+gym_clean$Calories_Burned_transform <- (gym_clean$Calories_Burned^0.76 - 1) / 0.76
+
+model_box <- lm(Calories_Burned_transform ~ Age + Gender + Max_BPM + Avg_BPM + Resting_BPM + Session_Duration..hours. + Workout_Type + Fat_Percentage + Water_Intake..liters. + Workout_Frequency..days.week. + Experience_Level + BMI,
+            data = gym_clean)
+summary(model_box)
+```
+
+Several predictors (e.g., Age, Gender, Max_BPM, Avg_BPM, Session_Duration.hours.) are statistically significant (p < 0.05), contributing meaningfully to predicting Calories_Burned_transform.
+
+Multiple R-squared (0.9835) and Adjusted R-squared (0.9833): These indicate that the model explains 98.35% of the variance in the transformed Calories_Burned variable, a very strong fit.
+
+F-statistic (4080) with a p-value (< 2.2e-16): Indicates the model is statistically significant overall.
+
+Before transformation, the residuals showed heteroskedasticity and non-normality. The Box-Cox transformation (lambda = 0.76) addresses these issues, resulting in a better-fitted model with well-behaved residuals.
+
+
+## Checking 4 assumptions for model_box
+#### Normality
+```{r}
+# Extract residuals from the model
+residuals1 <- residuals(model_box)
+
+# Create the Q-Q plot
+qqnorm(residuals1)
+qqline(residuals1, col = "red")  # Add a reference line
+
+# Shapiro-Wilk test 
+shapiro.test(residuals(model_box))
+```
+
+After removing the outliers and conducting power transformation, the residuals are generally well-aligned along the red line, with some deviation at the tails. The W value has increased from 0.98463 to 0.99096, indicating a closer adherence to normality. While the Shapiro-Wilk test yields a p-value of 1.117e-05, suggesting rejection of the null hypothesis of normality, this result is likely influenced by the large sample size as the test becomes highly sensitive to minor deviations from normality in larger datasets.
+
+Given that the deviations are minor and primarily in the tails, and that the W value is close to 1, we conclude that the residuals sufficiently satisfy the normality assumption for practical purposes in the new model, where outliers have been removed, weight and height have been excluded, and power transformation has been conducted.
+
+#### Independence
+```{r}
+library(car)
+durbinWatsonTest(model_box)
+```
+
+The non significant p-value (p = 0.076 > 0.05) suggest that there is no evidence of autocorrelation. This confirms that the residuals are independent, which satisfies the assumption of independence for linear regression.
+
+#### Linearity
+```{r}
+crPlots(model_box)
+```
+
+We observe that all variables show no significant deviations from the pink line, suggesting that linearity is satisfied.
+
+#### Homoskedasticity
+```{r}
+ncvTest(model_box)
+spreadLevelPlot(model_box)
+```
+
+Since the p-value = 0.0042013 < 0.05, we can reject the null hypothesis and conclude that the homoskedasticity assumption is violated. Furthermore, we see that there is a non-horizontal trend in the plot, which suggests a violation of the assumption of constant variance.
+
+Since heteroskedasticity is present, we proceed to fit another model via the Weighted Least Sqaures method. 
+
+## Weighted Least Squares
+```{r}
+# Step 1: Fit initial model and compute residuals
+residuals <- abs(residuals(model_box))
+
+# Step 2: Fit a model to predict residuals (e.g., using fitted values)
+weights <- 1 / (fitted(lm(residuals ~ fitted(model_box)))^2)
+
+# Step 3: Refit model using weights
+model_wls <- lm(Calories_Burned_transform ~ Age + Gender + Max_BPM + Avg_BPM + Resting_BPM + 
+                Session_Duration..hours. + Workout_Type + Fat_Percentage + Water_Intake..liters. + 
+                Workout_Frequency..days.week. + Experience_Level + BMI, 
+                data = gym_clean, weights = weights)
+
+summary(model_wls)
+```
+
+Multiple R-squared = 0.9838 and Adjusted R-squared = 0.9835: Indicate the model explains 98.38% of the variance in the transformed dependent variable. This is consistent with a well-fitted model.
+
+F-statistic (4141): A high F-statistic and a very small p-value suggest that the overall model is statistically significant.
+
+Many predictors remain statistically significant (p < 0.05): Age, GenderMale, Avg_BPM, and Session_Duration.hours. are particularly impactful. Workout_TypeYoga and Fat_Percentage are also significant but less so compared to other predictors.
+
+However, there is minimal impact on R-squared values compared to the original model. R^2 values are nearly identical to those in the original model, suggesting that the fit has not changed dramatically, but is now more robust.
+  
+## Check the 4 assumptions for model_wls
+#### Normality
+```{r}
+# Extract residuals from the model
+residuals2 <- residuals(model_wls)
+
+# Create the Q-Q plot
+qqnorm(residuals2)
+qqline(residuals2, col = "red")  # Add a reference line
+
+# Shapiro-Wilk test 
+shapiro.test(residuals(model_wls))
+```
+
+The high W value of 0.9905 along with the points mostly lying along the red line suggest that the normality assumption is satisfied. 
+
+#### Independence
+```{r}
+library(car)
+durbinWatsonTest(model_wls)
+```
+
+The non significant p-value (p = 0.06 > 0.05) suggest that there is no evidence of autocorrelation. This confirms that the residuals are independent, which satisfies the assumption of independence for linear regression.
+
+#### Linearity
+```{r}
+crPlots(model_wls)
+```
+
+We observe that all variables show no significant deviations from the pink line, suggesting that linearity is satisfied.
+
+#### Homoskedasticity
+```{r}
+ncvTest(model_wls)
+spreadLevelPlot(model_wls)
+```
+
+Since the p-value (0.17452) is greater than 0.05, there is insufficient evidence to reject the null hypothesis, indicating that the assumption of homoskedasticity is satisfied. Additionally, the plot shows a roughly horizontal trend, confirming that the issue of heteroskedasticity has been resolved. This demonstrates that the transformed data now meets the assumption of constant variance.
+
+
+Conclusion for Weighted Least Squares Model:
+Fulfills all 4 assumptions. 
+
+The model_wls has a high R-squared value of 0.9838, which suggests good fit. However, this could also indicate potential overfitting, where the model may have captured noise in addition to the true relationships. 
+
+To address this, we proceed with Stepwise Regression to simplify the model by removing less relevant predictors, thus reducing complexity and mitigating the risk of overfitting.
+
+## Stepwise regression
+```{r}
+# Remove Experience_Level from the model and create a new model
+model_wls_no_experience <- lm(Calories_Burned_transform ~ Age + Gender + Max_BPM + Avg_BPM + Resting_BPM + 
+                               Session_Duration..hours. + Workout_Type + Fat_Percentage + Water_Intake..liters. + 
+                               Workout_Frequency..days.week. + BMI, data = gym_clean, weights = weights)
+
+# Run stepwise regression
+model_stepwise <- step(model_wls_no_experience, direction = "both", trace = 1)
+
+# Perform stepwise regression
+#model_stepwise <- step(model_wls, direction = "both", trace = 1)
+
+# View the results
+summary(model_stepwise)
+```
+
+Residual Standard Error (1.308):
+This represents the average amount by which the observed values differ from the model's predicted values. A lower value indicates better model fit. Given the scale of the data, a residual standard error of 1.308 suggests good accuracy.
+
+
+Multiple R-squared (0.9837):
+This indicates that 98.37% of the variance in the dependent variable is explained by the predictors in the model. It reflects a very strong fit.
+
+
+Adjusted R-squared (0.9835):
+This adjusts for the number of predictors in the model and is very close to the Multiple R-squared. This suggests that the model is not overfitting and includes meaningful predictors.
+
+
+F-statistic (7245):
+A very high F-statistic value with a p-value less than 2.2e-16 indicates that the overall model is statistically significant. This means that the predictors collectively explain a significant portion of the variability in the dependent variable.
+
+```{r}
+library(car)
+
+# Check VIF
+vif(model_stepwise)
+```
+
+The Variance Inflation Factor (VIF) values for all predictors are below 5, indicating that multicollinearity is not an issue in the model. This ensures that the regression coefficients are reliable, and no predictor overly influences others due to high inter-correlation. The model is well-specified in terms of variable independence.
+
+
+Moreover, we were uncomfortable with this as a few of the coefficients still seem to be too extreme. 
+
+We proceed to test for the 4 assumptions for the model_stepwise anyway, to see if the model can be further improved. 
+
+## Check the 4 assumptions for model_stepwise
+#### Normality
+```{r}
+# Extract residuals from the model
+residuals3 <- residuals(model_stepwise)
+
+# Create the Q-Q plot
+qqnorm(residuals3)
+qqline(residuals3, col = "red")  # Add a reference line
+
+# Shapiro-Wilk test 
+shapiro.test(residuals(model_stepwise))
+```
+
+The high W value of 0.98944 along with the points mostly lying along the red line suggest that the normality assumption is satisfied. 
+
+#### Independence
+```{r}
+library(car)
+durbinWatsonTest(model_stepwise)
+```
+
+The non significant p-value (p = 0.06 > 0.05) suggest that there is no evidence of autocorrelation. This confirms that the residuals are independent, which satisfies the assumption of independence for linear regression.
+
+#### Linearity
+```{r}
+crPlots(model_stepwise)
+```
+
+Overall, the variables show no significant deviations from the pink line, with the mild exceptions of a few, such as age. Since those that suggest non-linearity are quite minor deviations from the line, we can assume that linearity is satisfied.
+
+#### Homoskedasticity
+```{r}
+ncvTest(model_stepwise)
+spreadLevelPlot(model_stepwise)
+```
+
+Since the p-value (0.14478) is greater than 0.05, there is insufficient evidence to reject the null hypothesis. This indicates that the assumption of homoskedasticity is satisfied. Moreover, the plot shows a roughly horizontal trend, confirming that the issue of heteroskedasticity has been addressed. Thus, the transformed data now meets the assumption of constant variance.
+
+## Stepwise regression -- Standardisation
+To solve the issue of having overly large coefficients, we decided to standardise the model. 
+```{r}
+# Standardize predictors
+gym_clean_standardized <- gym_clean
+gym_clean_standardized[, c("Age", "Avg_BPM", "Resting_BPM", "Session_Duration..hours.", 
+                          "Fat_Percentage", "Water_Intake..liters.", "BMI")] <- 
+                          scale(gym_clean[, c("Age", "Avg_BPM", "Resting_BPM", 
+                                              "Session_Duration..hours.", "Fat_Percentage", 
+                                              "Water_Intake..liters.", "BMI")])
+
+# Re-run WLS model with standardized predictors
+model_wls_standardized <- lm(Calories_Burned_transform ~ ., 
+                             data = gym_clean_standardized, weights = weights)
+
+# Stepwise regression
+model_stepwise_standardized <- step(model_wls_standardized, direction = "both", trace = TRUE)
+
+# View summary
+summary(model_stepwise_standardized)
+```
+
+The regression model demonstrates an outstanding fit, with a Multiple R-squared of 0.9986 and an Adjusted R-squared of 0.9986, indicating that the predictors collectively explain 99.86% of the variance in the dependent variable. 
+
+The residual standard error of 0.3864 suggests highly accurate predictions. 
+
+The F-statistic of 96,250 and its associated p-value (< 2.2e-16) confirm that the model is statistically significant, with the predictors playing a crucial role in explaining the variability in the response variable. This highlights the robustness and reliability of the model.
+
+## Check the 4 assumptions for model_stepwise_standardized
+#### Normality
+```{r}
+# Extract residuals from the model
+residuals4 <- residuals(model_stepwise_standardized)
+
+# Create the Q-Q plot
+qqnorm(residuals4)
+qqline(residuals4, col = "red")  # Add a reference line
+
+# Shapiro-Wilk test 
+shapiro.test(residuals(model_stepwise_standardized))
+```
+
+W = 0.94183: This is the test statistic, where values closer to 1 indicate normality.
+
+QQ Plot: The points at the tails seem to deviate too much from the line. 
+
+p-value: Much smaller than 0.05.
+
+Hence, normality is not satisfied, which is not an improvement from the non-standardised stepwise model. 
+
+#### Independence
+```{r}
+library(car)
+durbinWatsonTest(model_stepwise_standardized)
+```
+
+The non significant p-value (p = 0.16 > 0.05) suggest that there is no evidence of autocorrelation. This confirms that the residuals are independent, which satisfies the assumption of independence for linear regression.
+
+#### Linearity
+```{r}
+crPlots(model_stepwise_standardized)
+```
+
+Overall, the variables show no significant deviations from the pink line, with the mild exceptions of a few. Since those that suggest non-linearity are quite minor deviations from the line, we can assume that linearity is satisfied.
+
+#### Homoskedasticity
+```{r}
+ncvTest(model_stepwise_standardized)
+spreadLevelPlot(model_stepwise_standardized)
+```
+
+Since the p-value (0.16495) is greater than 0.05, there is insufficient evidence to reject the null hypothesis, indicating that the assumption of homoskedasticity is satisfied. Moreover, the plot shows a roughly horizontal trend, confirming that the issue of heteroskedasticity has been resolved.
+
+
+### Overall Conclusion for model_stepwise and model_stepwise_standardised 
+model_stepwise: Coefficients seem too large, and the linearity assumption is violated. 
+
+model_stepwise_standardised: Normality assumption is violated, although the coefficients and assumption violations have improved due to scaling and standardisation. 
+
+## All Subsets Regression
+```{r}
+library(leaps)
+
+# Fit the regsubsets model
+model_subset <- regsubsets(Calories_Burned_transform ~ Age + Gender + Max_BPM + Avg_BPM + Resting_BPM + 
+                           Session_Duration..hours. + Workout_Type + Fat_Percentage + Water_Intake..liters. + 
+                           Workout_Frequency..days.week. + Experience_Level + BMI,
+                           data = gym_clean, 
+                           weights = weights)
+
+# Display the results
+summary(model_subset)
+
+# Extract the summary of the regsubsets object
+summary_subsets <- summary(model_subset)
+
+# Check the metrics (Adjusted R², Cp, BIC)
+summary_subsets$adjr2  # Adjusted R² for each subset
+summary_subsets$cp     # Cp for each subset
+summary_subsets$bic    # BIC for each subset
+```
+
+The Adjusted R² increases as we add more predictors, indicating that the model fit improves with more predictors. The increase seems to stabilise after 4 predictors (around 0.9835), suggesting that adding more predictors beyond this point does not provide a substantial increase in fit.
+
+As we add more predictors, Cp decreases, which is expected, but the rate of decrease slows down. The smallest Cp value is 7.643880 for the model with 8 predictors, which suggests that this model is very close to the optimal size in terms of predictive accuracy. The model with 8 predictors has a Cp value of 7.643880, which is quite close to 8, indicating it is a good model choice.
+
+The BIC decreases as the number of predictors increases, which is typical because adding predictors initially improves the model fit. However, the rate of decrease slows down, and at a certain point, the improvement becomes minimal. The lowest BIC value is -3935.288 for the model with 8 predictors, suggesting that the model with 8 predictors is the best in terms of BIC.
+
+```{r}
+# Display the best subsets for each number of predictors
+# This will show you which variables are selected for each subset of predictors
+summary_subsets$which
+
+# Get the best model based on Adjusted R², Cp, and BIC
+
+# Best model based on Adjusted R² (maximized)
+best_adj_r2_model <- which.max(summary_subsets$adjr2)
+cat("Best model based on Adjusted R²: ", best_adj_r2_model, "\n")
+cat("Predictors selected for Adjusted R²: ", summary_subsets$which[best_adj_r2_model, ], "\n")
+
+# Best model based on Cp (minimized)
+best_cp_model <- which.min(summary_subsets$cp)
+cat("Best model based on Cp: ", best_cp_model, "\n")
+cat("Predictors selected for Cp: ", summary_subsets$which[best_cp_model, ], "\n")
+
+# Best model based on BIC (minimized)
+best_bic_model <- which.min(summary_subsets$bic)
+cat("Best model based on BIC: ", best_bic_model, "\n")
+cat("Predictors selected for BIC: ", summary_subsets$which[best_bic_model, ], "\n")
+```
+
+We chose to follow the model suggested by the adjusted R^2 and Cp value.
+
+```{r}
+model_all <- lm(Calories_Burned_transform ~ Age + Gender + Avg_BPM + 
+                Session_Duration..hours. + Workout_Type + Fat_Percentage + Water_Intake..liters. + BMI, data = gym_clean, weights = weights)
+
+summary(model_all)
+```
+
+## Check the 4 assumptions for model_all
+#### Normality
+```{r}
+# Extract residuals from the model
+residuals5 <- residuals(model_all)
+
+# Create the Q-Q plot
+qqnorm(residuals5)
+qqline(residuals5, col = "red")  # Add a reference line
+
+# Shapiro-Wilk test 
+shapiro.test(residuals(model_all))
+```
+
+The high W value of 0.9901 along with the points mostly lying along the red line suggest that the normality assumption is satisfied. 
+
+#### Independence
+```{r}
+library(car)
+durbinWatsonTest(model_all)
+```
+
+The p-value = 0.034 < 0.05 suggest that there is evidence of autocorrelation. This means that the residuals are not independent, which violates the assumption of independence for linear regression.
+
+#### Linearity
+```{r}
+crPlots(model_all)
+```
+
+Overall, the variables show no significant deviations from the pink line, with the mild exceptions of a few. Since those that suggest non-linearity are quite minor deviations from the line, we can assume that linearity is satisfied.
+
+#### Homoskedasticity
+```{r}
+ncvTest(model_all)
+spreadLevelPlot(model_all)
+```
+
+Since the p-value (0.12478) is greater than 0.05, there is insufficient evidence to reject the null hypothesis, suggesting that the homoskedasticity assumption is satisfied. Additionally, the plot shows a roughly horizontal trend, confirming that the issue of heteroskedasticity has been addressed.
+
+## All Subset Regression -- Standardisation
+Now, to solve the issue of having overly large coefficients, again, similar to Stepwise Regression and Stepwise Regression Standardised, we decided to standardise the model. 
+
+```{r}
+# Load required library
+library(leaps)
+
+# Step 1: Standardize the predictors
+gym_clean_standardized <- gym_clean
+
+# Standardize all continuous predictors
+gym_clean_standardized[, c("Age", "Max_BPM", "Avg_BPM", "Resting_BPM", 
+                           "Session_Duration..hours.", "Fat_Percentage", 
+                           "Water_Intake..liters.", "Workout_Frequency..days.week.", "BMI")] <- 
+                           scale(gym_clean[, c("Age", "Max_BPM", "Avg_BPM", "Resting_BPM", 
+                                               "Session_Duration..hours.", "Fat_Percentage", 
+                                               "Water_Intake..liters.", "Workout_Frequency..days.week.", "BMI")])
+
+# Step 2: Fit the regsubsets model on standardized predictors
+model_subset <- regsubsets(Calories_Burned_transform ~ Age + Gender + Max_BPM + Avg_BPM + Resting_BPM + 
+                           Session_Duration..hours. + Workout_Type + Fat_Percentage + Water_Intake..liters. + 
+                           Workout_Frequency..days.week. + Experience_Level + BMI,
+                           data = gym_clean_standardized, 
+                           weights = weights,
+                           nvmax = 10,  # Maximum number of predictors
+                           method = "exhaustive")  # Exhaustive search
+
+# Step 3: Extract and display results
+summary_subsets <- summary(model_subset)
+
+# Metrics for model comparison
+cat("Adjusted R²:\n")
+print(summary_subsets$adjr2)
+
+cat("\nMallows' Cp:\n")
+print(summary_subsets$cp)
+
+cat("\nBIC:\n")
+print(summary_subsets$bic)
+
+# Step 4: Plot selection criteria
+par(mfrow = c(1, 3))  # Set up 3 plots in one row
+plot(model_subset, scale = "adjr2", main = "Adjusted R²")
+plot(model_subset, scale = "Cp", main = "Mallows' Cp")
+plot(model_subset, scale = "bic", main = "BIC")
+
+# Step 5: Display the best subset
+best_model <- coef(model_subset, which.max(summary_subsets$adjr2))  # Model with highest Adjusted R²
+print("Coefficients of the Best Model:")
+print(best_model)
+```
+
+
+```{r}
+# Display the best subsets for each number of predictors
+# This will show which variables are selected for each subset
+cat("Best Subsets for Each Number of Predictors:\n")
+print(summary_subsets$which)
+
+# Best model based on Adjusted R² (maximized)
+best_adj_r2_model <- which.max(summary_subsets$adjr2)
+cat("\nBest model based on Adjusted R²:\n")
+cat("Number of Predictors:", best_adj_r2_model, "\n")
+cat("Predictors selected:\n")
+print(names(summary_subsets$which[best_adj_r2_model, ][summary_subsets$which[best_adj_r2_model, ] == TRUE]))
+
+# Best model based on Cp (minimized)
+best_cp_model <- which.min(summary_subsets$cp)
+cat("\nBest model based on Cp:\n")
+cat("Number of Predictors:", best_cp_model, "\n")
+cat("Predictors selected:\n")
+print(names(summary_subsets$which[best_cp_model, ][summary_subsets$which[best_cp_model, ] == TRUE]))
+
+# Best model based on BIC (minimized)
+best_bic_model <- which.min(summary_subsets$bic)
+cat("\nBest model based on BIC:\n")
+cat("Number of Predictors:", best_bic_model, "\n")
+cat("Predictors selected:\n")
+print(names(summary_subsets$which[best_bic_model, ][summary_subsets$which[best_bic_model, ] == TRUE]))
+```
+
+```{r}
+# Fit the final model using standardized predictors
+model_all_standardized <- lm(Calories_Burned_transform ~ Age + Gender + Avg_BPM + Resting_BPM + Session_Duration..hours. + Workout_Type + Fat_Percentage + Water_Intake..liters. + BMI, 
+                             data = gym_clean_standardized, weights = weights)
+
+# View the summary of the final model
+summary(model_all_standardized)
+```
+
+The regression model demonstrates an excellent fit, with a Multiple R-squared of 0.9838 and an Adjusted R-squared of 0.9836, indicating that the predictors collectively explain 98.38% of the variability in the dependent variable. 
+
+The residual standard error of 1.306 suggests that the predictions are highly accurate. 
+
+The high F-statistic (5283) and its associated p-value (< 2.2e-16) confirm that the model is statistically significant, with the predictors playing a crucial role in explaining the variability in the response variable.
+
+## Check the 4 assumptions for model_all_standardized
+#### Normality
+```{r}
+# Extract residuals from the model
+residuals5 <- residuals(model_all_standardized)
+
+# Create the Q-Q plot
+qqnorm(residuals5)
+qqline(residuals5, col = "red")  # Add a reference line
+
+# Shapiro-Wilk test 
+shapiro.test(residuals(model_all_standardized))
+```
+
+The high W value of 0.99033 along with the points mostly lying along the red line suggest that the normality assumption is satisfied. 
+
+#### Independence
+```{r}
+library(car)
+durbinWatsonTest(model_all_standardized)
+```
+
+The non significant p-value (p = 0.058 > 0.05) suggest that there is no evidence of autocorrelation. This confirms that the residuals are independent, which satisfies the assumption of independence for linear regression.
+
+#### Linearity
+```{r}
+crPlots(model_all_standardized)
+```
+
+Overall, the variables show no significant deviations from the pink line, with the mild exceptions of a few. Since those that suggest non-linearity are quite minor deviations from the line, we can assume that linearity is satisfied.
+
+#### Homoskedasticity
+```{r}
+ncvTest(model_all_standardized)
+spreadLevelPlot(model_all_standardized)
+```
+
+Since the p-value (0.15458) is greater than 0.05, there is insufficient evidence to reject the null hypothesis, indicating that the assumption of homoskedasticity is satisfied. Additionally, the plot displays a roughly horizontal trend, confirming that the issue of heteroskedasticity has been addressed. Thus, the transformed data now meets the assumption of constant variance.
+
+
+#### Overall Conclusion for Non-standardised and Standardised All Subset Regression Model
+
+Non-standardised All Subset Regression Model: Not all the assumptions are satisfied. 
+
+Standardised All Subset Regression Model: All the assumptions are satisfied but the coefficients still seem oddly large after standardisation. 
+
+
+## Which model should we use?
+Comparing the 4 models that we have (model_box, model_wls, model_stepwise/model_stepwise_standardized and model_all/model_all_standardized), it seems the best to use model_wls. This is because the absolute value of coefficients makes more sense in real life, while still satisfying the 4 basic assumptions with a high R^2 value. 
+
+## Relative importance for model_wls
+```{r}
+# Extract the coefficients (standardized) from the model
+coefficients <- coef(model_wls)
+
+# Remove the intercept from the coefficients
+coefficients_no_intercept <- coefficients[-1]  # Exclude the intercept
+
+# Calculate the absolute values of the coefficients (standardized)
+abs_coefficients <- abs(coefficients_no_intercept)
+
+# Calculate relative importance as a percentage of the total importance
+relative_importance <- abs_coefficients / sum(abs_coefficients) * 100
+
+# Create a summary table
+importance_table <- data.frame(
+  Predictor = names(abs_coefficients),
+  Coefficient = coefficients_no_intercept,
+  Relative_Importance = relative_importance
+)
+
+# Print the table with relative importance
+print(importance_table)
+```
+
+We can see from the table that Session_Duration is the most important predictor, followed by Gender. 
+
+## Histogram smoothing
+Next, we conducted histogram smoothing to reduce noise and create a clearer representation of the data's distribution. 
+
+```{r}
+# Set up the plotting area to display histograms for continuous predictors
+par(mfrow = c(1, 1))
+par(cex.axis = 0.8, cex.lab = 0.8, cex.main = 0.9)
+
+# Age - Create Histogram and Overlay Density
+hist(gym_clean$Age, breaks = 20, probability = TRUE, col = 0,
+     ylim = c(0, 0.05), xlab = "Age", ylab = "Density", main = "Histogram with Smoothing for Age")
+density_est_age <- density(gym_clean$Age)
+lines(density_est_age, col = "blue")
+
+# Max_BPM - Create Histogram and Overlay Density
+hist(gym_clean$Max_BPM, breaks = 20, probability = TRUE, col = 0,
+     ylim = c(0, 0.05), xlab = "Max_BPM", ylab = "Density", main = "Histogram with Smoothing for Max_BPM")
+density_est_max_bpm <- density(gym_clean$Max_BPM)
+lines(density_est_max_bpm, col = "blue")
+
+# Avg_BPM - Create Histogram and Overlay Density
+hist(gym_clean$Avg_BPM, breaks = 20, probability = TRUE, col = 0,
+     ylim = c(0, 0.05), xlab = "Avg_BPM", ylab = "Density", main = "Histogram with Smoothing for Avg_BPM")
+density_est_avg_bpm <- density(gym_clean$Avg_BPM)
+lines(density_est_avg_bpm, col = "blue")
+
+# Resting_BPM - Create Histogram and Overlay Density
+hist(gym_clean$Resting_BPM, breaks = 20, probability = TRUE, col = 0,
+     ylim = c(0, 0.2), xlab = "Resting_BPM", ylab = "Density", main = "Histogram with Smoothing for Resting_BPM")
+density_est_resting_bpm <- density(gym_clean$Resting_BPM)
+lines(density_est_resting_bpm, col = "blue")
+
+# Session_Duration..hours. - Create Histogram and Overlay Density
+hist(gym_clean$Session_Duration..hours., breaks = 20, probability = TRUE, col = 0,
+     ylim = c(0, 1.5), xlab = "Session Duration (hours)", ylab = "Density", main = "Histogram with Smoothing for Session Duration")
+density_est_duration <- density(gym_clean$Session_Duration..hours.)
+lines(density_est_duration, col = "blue")
+
+# Fat_Percentage - Create Histogram and Overlay Density
+hist(gym_clean$Fat_Percentage, breaks = 20, probability = TRUE, col = 0,
+     ylim = c(0, 0.1), xlab = "Fat_Percentage", ylab = "Density", main = "Histogram with Smoothing for Fat_Percentage")
+density_est_fat_percentage <- density(gym_clean$Fat_Percentage)
+lines(density_est_fat_percentage, col = "blue")
+
+# Water_Intake..liters. - Create Histogram and Overlay Density
+hist(gym_clean$Water_Intake..liters., breaks = 20, probability = TRUE, col = 0,
+     ylim = c(0, 1.5), xlab = "Water Intake (liters)", ylab = "Density", main = "Histogram with Smoothing for Water Intake")
+density_est_water_intake <- density(gym_clean$Water_Intake..liters.)
+lines(density_est_water_intake, col = "blue")
+
+# Workout_Frequency..days.week. - Create Histogram and Overlay Density
+hist(gym_clean$Workout_Frequency..days.week., breaks = 10, probability = TRUE, col = 0,
+     ylim = c(0, 1.5), xlab = "Workout Frequency (days/week)", ylab = "Density", main = "Histogram with Smoothing for Workout Frequency")
+density_est_workout_frequency <- density(gym_clean$Workout_Frequency..days.week.)
+lines(density_est_workout_frequency, col = "blue")
+
+# Experience_Level - Create Histogram and Overlay Density
+hist(gym_clean$Experience_Level, breaks = 5, probability = TRUE, col = 0,
+     ylim = c(0, 1.5), xlab = "Experience Level", ylab = "Density", main = "Histogram with Smoothing for Experience Level")
+density_est_experience_level <- density(gym_clean$Experience_Level)
+lines(density_est_experience_level, col = "blue")
+
+# BMI - Create Histogram and Overlay Density
+hist(gym_clean$BMI, breaks = 20, probability = TRUE, col = 0,
+     ylim = c(0, 0.1), xlab = "BMI", ylab = "Density", main = "Histogram with Smoothing for BMI")
+density_est_bmi <- density(gym_clean$BMI)
+lines(density_est_bmi, col = "blue")
+```
+
+## Kernel smoothing
+```{r}
+# Extract residuals from the model
+residuals_model <- residuals(model_wls)
+
+# Plot the kernel density estimate of the residuals using different kernels
+par(mfrow = c(1, 1))  # To plot in a single panel (or adjust as necessary)
+plot(density(residuals_model, bw = 1, kernel = "rectangular"), 
+     main = "Kernel Density Smoothing of Residuals", 
+     xlab = "Residuals", 
+     ylab = "Density", 
+     col = "black", lwd = 2, ylim = c(0, 0.1))
+lines(density(residuals_model, bw = 1, kernel = "triangular"), col = "red", lwd = 2)
+lines(density(residuals_model, bw = 1, kernel = "epanechnikov"), col = "green", lwd = 2)
+lines(density(residuals_model, bw = 1, kernel = "biweight"), col = "blue", lwd = 2)
+lines(density(residuals_model, bw = 1, kernel = "gaussian"), col = "orange", lwd = 2)
+
+# Add a legend
+legend("topright", legend = c("rectangular", "triangular", "epanechnikov", "biweight", "gaussian"), 
+       col = c("black", "red", "green", "blue", "orange"), 
+       lty = 1, cex = 0.7)
+```
+
+## Mixture distrbution estimation
+```{r}
+# Define the log-likelihood function for a mixture of two normal distributions
+logL <- function(param, x) {
+  # param: p (mixing weight), mu1, sd1, mu2, sd2 (mean and standard deviation for both components)
+  
+  d1 <- dnorm(x, mean = param[2], sd = param[3])  # first normal distribution
+  d2 <- dnorm(x, mean = param[4], sd = param[5])  # second normal distribution
+  
+  # The log-likelihood for the mixture model
+  -sum(log(param[1] * d1 + (1 - param[1]) * d2))
+}
+
+# Extract residuals from the transformed model
+residuals_model <- residuals(model_wls)
+
+# Set initial parameter guesses (p, mu1, sd1, mu2, sd2)
+start_param <- c(p = 0.5, mu1 = mean(residuals_model), sd1 = sd(residuals_model), 
+                 mu2 = mean(residuals_model) + 1, sd2 = sd(residuals_model))
+
+# Optimize using the optim() function
+opt_result <- optim(start_param, logL, x = residuals_model, 
+                    method = "L-BFGS-B", 
+                    lower = c(0.01, rep(1, 4)), upper = c(0.99, rep(200, 4)))
+
+# Print the estimated parameters
+opt_result$par
+
+# The estimated values will be the mixing proportion (p), means (mu1, mu2), and standard deviations (sd1, sd2)
+```
+
+Based on the results of the mixture model, it appears that the data is best described by a mixture of two normal distributions that are nearly identical. Both distributions share the same mean (mu1 = mu2 = 1.0), and while the standard deviations (sd1 = 9.35, sd2 = 5.23) differ slightly, the distributions remain very similar in shape. This suggests that the mixture model may not provide much additional insight beyond fitting a single normal distribution to the residuals. 
+
+In essence, the two components of the mixture model are so similar that the added complexity of using a mixture may not be justified. It is likely that a single normal distribution, with a high dispersion to account for the variability in the residuals, would suffice to describe the data accurately. 
+
+Therefore, the mixture model’s results suggest minimal value in separating the residuals into two distinct components, and a simpler model may be more appropriate.
+
+## Nadaraya-Watson Regression for Session_Duration..hours. 
+```{r}
+# Plot the scatter plot of the predictor against the response (Calories_Burned)
+plot(gym_clean$Session_Duration..hours., gym_clean$Calories_Burned_transform, 
+     xlab = "Session_Duration..hours.", ylab = "Calories Burned_transform", 
+     main = "Nadaraya-Watson Regression using Kernel Smoothing")
+
+# Kernel smoothing with box kernel
+lines(ksmooth(gym_clean$Session_Duration..hours., gym_clean$Calories_Burned_transform, kernel = "box", bandwidth = 0.25), col = "green", lwd = 1)
+lines(ksmooth(gym_clean$Session_Duration..hours., gym_clean$Calories_Burned_transform, kernel = "box", bandwidth = 0.5), col = "green", lwd = 2)
+lines(ksmooth(gym_clean$Session_Duration..hours., gym_clean$Calories_Burned_transform, kernel = "box", bandwidth = 0.75), col = "green", lwd = 3)
+
+# Kernel smoothing with normal kernel
+lines(ksmooth(gym_clean$Session_Duration..hours., gym_clean$Calories_Burned_transform, kernel = "normal", bandwidth = 0.25), col = "red", lwd = 1)
+lines(ksmooth(gym_clean$Session_Duration..hours., gym_clean$Calories_Burned_transform, kernel = "normal", bandwidth = 0.5), col = "red", lwd = 2)
+lines(ksmooth(gym_clean$Session_Duration..hours., gym_clean$Calories_Burned_transform, kernel = "normal", bandwidth = 0.75), col = "red", lwd = 3)
+
+# Add legend for box kernel at the top-left
+legend("topleft", 
+       legend = c("Box Kernel, Bandwidth = 0.25", 
+                  "Box Kernel, Bandwidth = 0.50", 
+                  "Box Kernel, Bandwidth = 0.75"), 
+       col = "green", 
+       lwd = c(1, 2, 3))
+
+# Add legend for normal kernel at the bottom-right
+legend("bottomright", 
+       legend = c("Normal Kernel, Bandwidth = 0.25", 
+                  "Normal Kernel, Bandwidth = 0.50", 
+                  "Normal Kernel, Bandwidth = 0.75"), 
+       col = "red", 
+       lwd = c(1, 2, 3))
+```
+
+The plot shows a positive relationship between Calories_Burned_transform and Session_Duration.hours., analyzed using Nadaraya-Watson regression with Box and Normal kernels across three bandwidths (h = 0.25, 0.50, 0.75). 
+
+
+Smaller bandwidths (h = 0.25) capture local fluctuations but appear noisy.
+
+Larger bandwidths (h=0.75) oversmooth the data, losing some local variation.
+
+Medium bandwidth (h=0.50) provides a good balance, showing a smooth, reliable trend.
+
+
+Both kernels produce similar results, with the Normal kernel offering slightly smoother curves. The positive trend confirms that longer session durations are strongly associated with higher calories burned. A medium bandwidth is likely the most practical choice for interpretation.
+
+## LOESS Technique for Session_Duration..hours.
+```{r}
+# Plotting Calories_Burned vs Session_Duration..hours. with multiple LOESS spans
+plot(gym_clean$Session_Duration..hours., gym_clean$Calories_Burned_transform, 
+     xlab = "Session_Duration..hours.", ylab = "Calories_Burned_transform", 
+     main = "Calories Burned vs Session_Duration with Different LOESS Spans")
+
+# LOESS smoothing with span = 0.25
+loess_fit_025 <- loess(gym_clean$Calories_Burned_transform ~ gym_clean$Session_Duration..hours., data = gym_clean, span = 0.25)
+lines(loess_fit_025$x, fitted(loess_fit_025), col = "red", lwd = 2)
+
+# LOESS smoothing with span = 0.5
+loess_fit_050 <- loess(gym_clean$Calories_Burned_transform ~ gym_clean$Session_Duration..hours., data = gym_clean, span = 0.5)
+lines(loess_fit_050$x, fitted(loess_fit_050), col = "blue", lwd = 2)
+
+# LOESS smoothing with span = 0.75
+loess_fit_075 <- loess(gym_clean$Calories_Burned_transform ~ gym_clean$Session_Duration..hours., data = gym_clean, span = 0.75)
+lines(loess_fit_075$x, fitted(loess_fit_075), col = "green", lwd = 2)
+
+# Add a legend to the plot
+legend("topright", legend = c("span = 0.25", "span = 0.5", "span = 0.75"),
+       col = c("red", "blue", "green"), lwd = 2)
+```
+
+The LOESS regression shows a positive relationship between Session_Duration.hours. and Calories_Burned_transform, with different spans (0.25,0.5,0.75) affecting the smoothness of the curve. 
+
+A lower span (0.25) captures more local variability, while a higher span (0.75) smooths the global trend. The medium span (0.5) provides the best balance between detail and smoothness, confirming a strong, consistent positive trend in the data.
+
+
+## Creating a new variable for Weekly Exercise Time
+```{r }
+library(dplyr)
+gym5<- gym_clean[, c("Gender",
+               "Weight..kg.",
+               "Height..m.",
+               "Workout_Type",
+               "Session_Duration..hours.",
+               "Calories_Burned_transform",
+               "Fat_Percentage",
+               "Water_Intake..liters.",
+               "Workout_Frequency..days.week.",
+               "Experience_Level",
+               "BMI",
+               "Age",
+               "Max_BPM",
+               "Avg_BPM", 
+               "Resting_BPM")]
+gym5<-rename(gym5,Calories_Burned=Calories_Burned_transform)
+gym2<-cbind(gym5,
+           week_time=gym5$Session_Duration..hours.*gym5$Workout_Frequency..days.week.)
+```
+
+## Two-way Factorial ANOVA
+
+Here we focus on the relationship between BMI and Workout_Type as well as Gender. First, we list all possible combinations of Workout_Type and Gender and calculate their corresponding mean BMI and standard deviation to understand the distribution of the data. We then use the Analysis of Variance (ANOVA) model to assess the relationship between BMI and Workout_Type, Gender, and their interactions.
+
+```{r}
+attach(gym2)
+table(Workout_Type,Gender)
+aggregate(BMI,by=list(Workout_Type,Gender),FUN=mean)
+aggregate(BMI,by=list(Workout_Type,Gender),FUN=sd)
+fit=aov(BMI~Workout_Type*Gender)
+summary(fit)
+
+interaction.plot(Workout_Type,Gender,BMI,
+                 type="b", col=c("red","blue"),pch=c(16,18),
+                 main="BMI between Workout_Type and Gender")
+library(gplots)
+plotmeans(BMI~interaction(Workout_Type,Gender, sep=" "), connect=list(c(1,3,5,7),c(2,4,6,8)),col=c("red","darkgreen"),main="Interaction Plot with 95% CIs", xlab="Treatment and Dose Combination")
+library(HH)
+interaction2wt(BMI~Workout_Type*Gender)
+```
+
+The first plot (BMI between Workout_Type and Gender line graph) highlights significant differences in BMI trends across Workout Type and Gender, with males showing greater sensitivity to workout type than females. 
+
+
+The second plot (Interaction Plot with 95% CIs) suggests that treatment type affects BMI differently for males and females, particularly with males showing a greater BMI increase under cardio training. 
+
+
+The third plot (BMI: main effects and 2-way interactions) show significant main effects of Gender and Workout Type on BMI, but no significant interaction effect between these factors. This indicates that while both gender and workout type independently influence BMI, the relationship between workout type and BMI does not differ significantly between males and females.
+
+
+### Overall:
+
+Gender: Males have significantly higher BMI values compared to females.
+
+
+Workout Type: Different workout types (e.g., Cardio, HIIT, Strength, Yoga) are associated with variations in BMI, with Cardio linked to the highest BMI and Yoga to the lowest.
+
+
+Non-Significant Interaction Effect:
+The interaction between Gender and Workout Type is not statistically significant, indicating that the relationship between Workout Type and BMI does not vary substantially by gender.
+
+
+The four workout types have little impact on BMI. At the same time, males have a higher BMI than females. The trends in exercise forms are similar between different genders, while the influence of gender is relatively small in strength training.
+
+## ANCOVA
+```{r}
+gym2$Workout_Type <- as.factor(gym2$Workout_Type)
+
+ancova(BMI~Calories_Burned+Workout_Type, data=gym2)
+ancova(BMI~Calories_Burned*Workout_Type, data=gym2)
+```
+
+From the first plot:
+
+The effect of Calories_Burned on BMI is not uniform across Workout Types.
+
+Cardio and Strength exhibit positive relationships, Yoga shows a negative relationship, and HIIT shows no relationship. 
+
+These highlight a significant interaction between Calories_Burned and Workout Type in influencing BMI, suggesting that the impact of calorie expenditure varies depending on the type of exercise.
+
+
+From the second plot:
+
+Strength and Cardio show slight positive trends.
+
+Yoga exhibits a slight negative trend.
+
+HIIT shows no strong relationship.
+
+These suggest that the effect of Calories_Burned on BMI is not uniform and depends on the type of workout.
+
+Overall, we have studied the effects of week_time and Workout_Type on BMI, both with and without considering their interaction. From the chart, Workout_Type appears to influence BMI, with variations across workout types (e.g., slight positive trends for Cardio and Strength, and a slight negative trend for Yoga). The interaction between week_time and Workout_Type is minimal but warrants further statistical testing to confirm whether it is significant.
+
+
+```{r}
+gym2$Gender <- as.factor(gym2$Gender)
+ancova(BMI~Calories_Burned+Gender, data=gym2)
+ancova(BMI~Calories_Burned*Gender, data=gym2)
+```
+
+#### The first plot:
+
+1. Males have higher and more variable BMI values compared to females.
+
+2. Females display a tighter cluster of BMI values with less variability.
+
+3. The trend lines for both genders are nearly flat, suggesting no significant relationship between Calories_Burned and BMI.
+
+4. In the panel, the combined view confirms that gender differences exist in BMI levels but highlights the lack of a relationship between Calories_Burned and BMI for either gender.
+
+
+#### The second plot:
+
+1. For both males and females, the trend lines are nearly parallel, suggesting no significant interaction between Calories_Burned and Gender in predicting BMI.
+
+2. The distribution of BMI for males remains higher and more variable than that of females.
+
+3. Neither gender shows a meaningful relationship between Calories_Burned and BMI.
+
+4. The overlapping parallel lines reinforce the conclusion that there is no significant interaction effect.
+
+
+#### Overall
+The results from both plots suggest that while Gender has a clear main effect on BMI, with males exhibiting higher and more variable BMI values than females, there is no significant relationship between Calories_Burned and BMI for either gender. 
+
+Furthermore, the interaction between Calories_Burned and Gender is negligible, as indicated by the parallel trend lines in the superposed views. 
+
+These findings imply that BMI differences are primarily driven by gender rather than variations in Calories_Burned or interactions between the two variables.
+
+```{r}
+library(coin)
+gym2<-transform(gym2,Gender= factor(Gender))
+t.test(week_time~Gender,data=gym2,var.equal =TRUE )
+t.test(Calories_Burned~Gender,data=gym2,var.equal =TRUE )
+t.test(Experience_Level~Gender,data=gym2,var.equal =TRUE )
+t.test(BMI~Gender,data=gym2,var.equal =TRUE )
+```
+
+The two-sample t-test shows a significant difference in BMI between males and females (t = -10.229, p-value < 2.2e-16). The mean BMI for the female group (22.73) is significantly lower than that of the male group (26.89), as confirmed by the 95% confidence interval (-4.96, -3.37), which does not include 0. This indicates a statistically significant difference in BMI based on gender. However, this test does not address differences related to week_time, Experience_Level, or Calories_Burned.
+
+## PCA
+```{r}
+### PCA
+GYM<-subset(gym2,select = c(Avg_BPM,Session_Duration..hours., Calories_Burned,Fat_Percentage,Water_Intake..liters.,Workout_Frequency..days.week.,BMI))
+GYM$Avg_BPM<- max(GYM$Avg_BPM) -GYM$Avg_BPM
+GYM$Session_Duration..hours. <- max(GYM$Session_Duration..hours. ) -GYM$Session_Duration..hours. 
+GYM$Calories_Burned<- max(GYM$Calories_Burned) -GYM$Calories_Burned
+GYM$Fat_Percentage<- max(GYM$Fat_Percentage) -GYM$Fat_Percentage
+GYM$Water_Intake..liters.<- max(GYM$Water_Intake..liters.) -GYM$Water_Intake..liters.
+GYM$Workout_Frequency..days.week.<- max(GYM$Workout_Frequency..days.week.) -GYM$Workout_Frequency..days.week.
+BMI<- which(colnames(GYM) == "BMI")
+
+### Scatterplot matrix for the heptathlon data
+plot(GYM[, -BMI])
+
+round(cor(GYM[, -BMI]), 2)
+GYM_pca=prcomp(GYM[, -BMI],scale=TRUE)
+print(GYM_pca)
+summary(GYM_pca)
+```
+
+From the first plot:
+Key driver of calories burned appears to be session duration, while other variables show weak or no correlation.
+
+```{r}
+#权重
+a1=GYM_pca$rotation[,1]
+a1
+plot(GYM_pca)
+## A plot of the data in the space of the first two principal components,
+## with the points labelled by the name of the corresponding competitor;  
+## the first two loadings for the events are given in a second coordinate system.
+biplot(GYM_pca,col=c("blue","red"))
+
+#绘制BMI与第一主成分得分的关系图
+cor(GYM$BMI,GYM_pca$x[,1])
+plot(GYM$BMI, GYM_pca$x[,1])
+```
+
+PC1 is driven by workout-related variables (Session Duration, Calories Burned, and Workout Frequency). PC2 primarily reflects Fat Percentage, which is independent of the workout variables. The biplot highlights a strong correlation among workout-related variables, while Fat Percentage and Water Intake contribute unique dimensions to the data structure.
+
+The scatterplot suggests that BMI does not have a strong or direct relationship with the first principal component (PC1). The majority of individuals fall within the BMI range of 20–30, with PC1 showing variability across this range. This implies that the variables driving PC1 (such as workout-related metrics) may not be significant predictors of BMI.
+
+## Hierarchical Clustering 
+```{r}
+#### Hierarchical Clustering 
+
+pottery_dist=dist(subset(gym2,select = c(BMI,Workout_Frequency..days.week., Calories_Burned,Session_Duration..hours.)))
+levelplot(as.matrix(pottery_dist),xlab="Pot Number",ylab="Pot Number")
+
+
+pottery_single=hclust(pottery_dist,method="single")
+pottery_complete=hclust(pottery_dist,method="complete")
+pottery_average=hclust(pottery_dist,method="average")
+layout(matrix(1:3,ncol=3))
+plot(pottery_single,main="Single Linkage",sub="",xlab="")
+plot(pottery_complete,main="Complete Linkage",sub="",xlab="")
+plot(pottery_average,main="Average Linkage",sub="",xlab="")
+
+```
+
+The heatmap reveals patterns of similarity among the pot numbers based on their features. The gradient primarily shows lighter values, suggesting limited high similarity across the dataset. However, some blocks of darker shades indicate groups or clusters of similar observations.
+
+The clusters are moderately compact and balanced, offering a compromise between the extremes of single and complete linkage.
+
+## K-means Clustering
+```{r}
+#### k-means  clustering 
+library("scatterplot3d")
+par(no.readonly = TRUE)
+layout(matrix(1))
+gym1<-subset(gym2,select = c(BMI,Workout_Frequency..days.week., Calories_Burned,Session_Duration..hours.))
+scatterplot3d(gym1$BMI,gym1$Workout_Frequency..days.week., gym1$Calories_Burned,gym1$Session_Duration..hours.,type = "h", angle = 55, scale.y = 0.7, pch = 16, y.ticklabs = seq(0,10, by = 2), y.margin.add = 0.1)
+
+rge <- apply(gym1, 2, max) - apply(gym1, 2, min)
+gym1.dat <- sweep(gym1, 2, rge, FUN = "/") ### function = divide
+n <- nrow(gym1.dat)
+wss <- rep(0, 10)
+wss[1] <- (n - 1) * sum(apply(gym1.dat, 2, var))
+for (i in 2:10) wss[i] <- sum(kmeans(gym1.dat,centers = i)$withinss)
+plot(1:10, wss, type = "b", xlab = "Number of groups", ylab = "Within groups sum of squares")
+
+ccent=function(cl){
+  f=function(i) colMeans(gym1[cl==i,])
+  x=sapply(sort(unique(cl)),f)
+  colnames(x)=sort(unique(cl))
+  return(x)
+}
+gym1_kmeans2= kmeans(gym1.dat,centers=2)
+table(gym1_kmeans2$cluster)
+ccent(gym1_kmeans2$cluster)
+gym1_kmeans8= kmeans(gym1.dat,centers=8)
+table(gym1_kmeans8$cluster)
+ccent(gym1_kmeans8$cluster)
+
+```
+
+Clusters 1 and 4 represent less active groups with lower workout frequency and shorter sessions, with Cluster 4 showing a higher BMI.
+
+Clusters 3 and 8 are the most active with high workout frequency, calorie burn, and longer session durations.
+
+Cluster 6 stands out due to its extremely high BMI, indicating a potential focus area for tailored fitness interventions.
+
+Clusters 5 and 7 are similar in BMI and calorie burn but differ slightly in session duration and frequency.
+
+## Model-based Clustering
+```{r}
+#### Model-based  clustering 
+library("mclust")
+gym1_mclust=Mclust(gym1.dat)
+print(gym1_mclust)
+table(gym1_mclust$classification)
+ccent(gym1_mclust$classification)
+
+plot.Mclust(gym1_mclust, what = "BIC", 
+     ylim = range(gym1_mclust$BIC[,-(1:2)], na.rm = TRUE), 
+     legendArgs = list(x = "bottomleft", cex =0.7))
+
+clPairs(gym1.dat,classification = gym1_mclust$classification,symbols=1:4,col="black")
+scatterplot3d(gym1$BMI, gym1$Workout_Frequency..days.week.,
+               gym1$Calories_Burned,gym1$Session_Duration..hours., 
+               type = "h", angle = 55,
+               scale.y = 0.7, pch = gym1_mclust$classification,
+               y.ticklabs = seq(0, 10, by = 2), y.margin.add = 0.1)
+```
+
+```{r}
+n<-nrow(gym2)
+gym2$Workout_Type <- as.factor(gym2$Workout_Type)
+gym2$Gender <- as.factor(gym2$Gender)
+gym_up<-gym2[1:((n+1)/2),]
+
+gym_down<-gym2[((n+1)/2+1):n,]
+fit.logit <- glm(Gender~Age+Avg_BPM+week_time+Experience_Level+BMI+Weight..kg.+Height..m.+Calories_Burned, data=gym_up,family = binomial())
+summary(fit.logit)
+logit.fit.reduced=step(fit.logit)
+prob <- predict(logit.fit.reduced, gym_down, type="response")
+logit.pred <- factor(prob > .5, levels=c(FALSE, TRUE),
+                       labels=c("benign", "malignant"))
+logit.perf <- table(gym_down$BMI, logit.pred,
+                      dnn=c("Actual", "Predicted"))
+
+
+```
+
+Model-based clustering indicates that the dataset is best described by 2–3 clusters. Calories Burned and Session Duration play key roles in defining these clusters, while BMI and Workout Frequency show weaker differentiation. The BIC plot supports the identification of a model with a small number of components as the optimal clustering solution.
+
+## Classical Decision Tree
+```{r}
+#### classical decision tree
+
+library(rpart)
+set.seed(12345)
+
+#### grow the tree
+dtree <- rpart(Gender ~ ., data=gym_up, method="class",
+               parms=list(split="information"))
+
+### The complexity parameter (cp) is used to penalize larger trees.
+### Tree size is defined by the number of branch splits (nsplit).
+dtree$cptable
+plotcp(dtree)
+```
+
+```{r}
+#### prune the tree
+dtree.pruned=prune(dtree,cp=.0177)
+
+library(rpart.plot)
+prp(dtree.pruned, type = 2, extra = 104,
+      fallen.leaves = TRUE, main="Decision Tree")
+
+
+#### classifies new cases
+
+dtree.pred <- predict(dtree.pruned, gym_down, type="class")
+dtree.perf <- table(gym_down$Gender, dtree.pred,
+                      dnn=c("Actual", "Predicted"))
+dtree.perf
+```
+
+Individuals with Water_Intake < 2.8 and Weight < 81 are predominantly Female.
+Conversely, Water_Intake ≥ 2.8 almost exclusively classifies individuals as Male.
+
+
+## Conditional Inference Tree
+```{r}
+
+library(party)
+fit.ctree <- ctree(Gender~., data=gym_up)
+plot(fit.ctree, main="Conditional Inference Tree")
+
+ctree.pred <- predict(fit.ctree, gym_down, type="response")
+
+ctree.perf <- table(gym_down$Gender, ctree.pred,
+                      dnn=c("Actual", "Predicted"))
+
+ctree.perf
+```
+
+Primary Split: Water intake (≤2.7 liters) is the strongest determinant, classifying individuals predominantly as Female.
+
+
+Weight Threshold: For those consuming ≤2.7 liters, weight is a critical factor:
+
+Individuals ≤79.7 kg are more likely Female.
+
+Individuals >79.7 kg show a higher Male classification.
+
+
+
+Height Influence: Among those ≤79.7 kg, height further refines classification:
+
+Those ≤1.79 meters are overwhelmingly Female.
+
+Those >1.79 meters are more evenly split but skew slightly Male.
+
+
+Key Predictors: Water intake, weight, and height are the dominant factors driving classification in this model.
+
+## Random Forest
+```{r}
+#### Random Forest
+library(randomForest)
+set.seed(1234)
+
+### grow the forest
+fit.forest <- randomForest(Gender~., data=gym_up,
+                             na.action=na.roughfix,
+                             importance=TRUE)
+print(head(fit.forest, 2))
+
+#### determine variable importance
+importance(fit.forest,type=2)
+
+#### classifies new cases
+forest.pred <- predict(fit.forest, gym_down)
+forest.perf <- table(gym_down$Gender, forest.pred,
+                     dnn = c("Actual", "Predicted"))
+accuracy <- sum(diag(forest.perf)) / sum(forest.perf)
+cat("Accuracy:", accuracy, "\n") 
+
+```
+
+Key Variables:
+
+Most Important: Water intake, weight, and height have the highest MeanDecreaseGini scores, indicating their strong predictive power for determining gender.
+
+Moderate Importance: Session duration, calories burned, and BMI also contribute but to a lesser extent.
+
+Least Important: Variables like workout type and workout frequency have minimal predictive influence.
+
+Model Accuracy: The model achieves an accuracy of 97.32%, demonstrating excellent predictive performance.
+
+
+## Support Vector Machines
+```{r}
+#### Support vector machines
+library(e1071)
+set.seed(1234)
+fit.svm <- svm(Gender~., data=gym_up)
+fit.svm
+
+svm.pred <- predict(fit.svm, na.omit(gym_down))
+svm.perf <- table(na.omit(gym_down)$Gender,
+                    svm.pred, dnn=c("Actual", "Predicted"))
+accuracy <- sum(diag(svm.perf)) / sum(svm.perf)
+cat("Accuracy:", accuracy, "\n") 
+```
+
+```{r}
+#### Tuning an RBF support vector machine
+set.seed(1234)
+### varies the parameters
+tuned <- tune.svm(Workout_Type~., data=gym_up,
+                    gamma=10^(-4:2),
+                    cost=10^(-2:5))
+tuned ### print the best model
+### fit the model with tuned parameters
+fit.svm <- svm(Workout_Type~., data=gym_up, gamma=0.1, cost=10)
+svm.pred <- predict(fit.svm, na.omit(gym2))
+
+#### evaluate the cross-validation performance
+svm.perf <- table(na.omit(gym2)$Workout_Type,
+                  svm.pred, dnn=c("Actual", "Predicted"))
+
+accuracy <- sum(diag(svm.perf)) / sum(svm.perf)
+cat("Accuracy:", accuracy, "\n")
+```
+
+Overall:
+
+Lower accuracy compared to Random Forest in this context.
+
+Performance highly depends on proper parameter tuning.
+
+## Conclusion
+In conclusion, the two most significant contributors to the number of calories burned is session duration and gender. 
+
+We believe that this project is particularly impactful and deserves more insightful research as more and more people are becoming more health-conscious, with the number of gym-goers increasing yearly. Knowing that extending the length of each exercise routine helps to better achieve weight loss goals, as well as produce higher levels of dopamine, may further motivate the human population to exercise and gain the necessary physical health benefits. Such research will definitely be advantageous to mankind, particularly those in the fitness industry, or even the average person. 
+
+Moreover, we must also acknowledge the limitations of the study. 
+
+One, the limited sample size of the study did not indicate the heritage or genetic backgrounds of the participants, which means that this study cannot represent the effectiveness of session duration on calories burned for every person. 
+
+Secondly, the study did not consider factors, such as the intensity of exercises, as stereotypes like Pilates being less intense than running may not always hold true. 
+
+Thirdly, the variables used may be subjective, just as the intensity is rated differently by people with different pain tolerances and experiences.
+
+All in all, the study is very useful, providing many insights and possible points of further research. 
